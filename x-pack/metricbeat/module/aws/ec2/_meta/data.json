@@ -1,0 +1,105 @@
+{
+    "@timestamp": "2017-10-12T08:05:34.853Z",
+    "aws": {
+        "ec2": {
+            "cpu": {
+                "credit_balance": 144,
+                "credit_usage": 0.061395,
+                "surplus_credit_balance": 0,
+                "surplus_credits_charged": 0,
+                "total": {
+                    "pct": 1.1651199407241788
+                }
+            },
+            "diskio": {
+                "read": {
+                    "bytes": 0,
+                    "bytes_per_sec": 0,
+                    "count": 0,
+                    "count_per_sec": 0
+                },
+                "write": {
+                    "bytes": 0,
+                    "bytes_per_sec": 0,
+                    "count": 0,
+                    "count_per_sec": 0
+                }
+            },
+            "instance": {
+                "core": {
+                    "count": 1
+                },
+                "image": {
+                    "id": "ami-04bc3da8f14823e88"
+                },
+                "monitoring": {
+                    "state": "disabled"
+                },
+                "private": {
+                    "dns_name": "ip-172-31-9-119.us-west-1.compute.internal",
+                    "ip": "172.31.9.119"
+                },
+                "public": {
+                    "dns_name": "ec2-13-52-163-56.us-west-1.compute.amazonaws.com",
+                    "ip": "13.52.163.56"
+                },
+                "state": {
+                    "code": 16,
+                    "name": "running"
+                },
+                "threads_per_core": 1
+            },
+            "network": {
+                "in": {
+                    "bytes": 7375.4,
+                    "bytes_per_sec": 24.584666666666667,
+                    "packets": 49,
+                    "packets_per_sec": 0.16333333333333333
+                },
+                "out": {
+                    "bytes": 11567,
+                    "bytes_per_sec": 38.556666666666665,
+                    "packets": 44.8,
+                    "packets_per_sec": 0.14933333333333332
+                }
+            },
+            "status": {
+                "check_failed": 0,
+                "check_failed_instance": 0,
+                "check_failed_system": 0
+            }
+        },
+        "tags": {
+            "Name": "mysql-test",
+            "created-by": "ks"
+        }
+    },
+    "cloud": {
+        "account": {
+            "id": "428152502467",
+            "name": "elastic-beats"
+        },
+        "availability_zone": "us-west-1b",
+        "instance": {
+            "id": "i-0516ddaca5c1d231f",
+            "name": "mysql-test"
+        },
+        "machine": {
+            "type": "t2.micro"
+        },
+        "provider": "aws",
+        "region": "us-west-1"
+    },
+    "event": {
+        "dataset": "aws.ec2",
+        "duration": 115000,
+        "module": "aws"
+    },
+    "metricset": {
+        "name": "ec2",
+        "period": 10000
+    },
+    "service": {
+        "type": "aws"
+    }
+}
