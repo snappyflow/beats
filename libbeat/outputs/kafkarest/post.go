@@ -20,35 +20,37 @@ package kafkarest
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 )
 
-func sendToDest(url string, topic string, kafkaRecords []interface{}) {
+func sendToDest(url string, topic string, kafkaRecords []map[string]interface{})error {
 
 	kafkaUrl := "http://" + url +"/topics/" + topic
-	fmt.Println(kafkaUrl)
+	//fmt.Println(kafkaUrl)
 
 	records := make(map[string]interface{})
 	records["records"] = kafkaRecords
+	//fmt.Println(records)
 
 	recordsData, err := json.Marshal(records)
+	//fmt.Println(string(recordsData))
     if err != nil {
         fmt.Println(err)
-        return 
+        return err
     }
 
-	//fmt.Println(string(recordsData))
-	//fmt.Printf("No of records to be sent %d\n", len(kafkaRecords))
+	fmt.Printf("No of records to be sent %d\n", len(kafkaRecords))
 	req, err := http.NewRequest("POST", kafkaUrl, bytes.NewBuffer(recordsData))
     if err != nil {
-		fmt.Println(err)
-        return
+		//fmt.Println(err)
+        return  err
     }
 
 	req.Header.Set("Content-Type", "application/vnd.kafka.json.v2+json")
-	req.Header.Set("Authorization", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWJqZWN0IjoiYWRtaW4vYWRtaW4iLCJpc3MiOiJsb2dhcmNoaXZhbCJ9.Aqhl-amaKaKDoXDc0-8TN4hhI7FFkLa76GwDMBTmR8s")
+	//req.Header.Set("Authorization", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWJqZWN0IjoiYWRtaW4vYWRtaW4iLCJpc3MiOiJsb2dhcmNoaXZhbCJ9.Aqhl-amaKaKDoXDc0-8TN4hhI7FFkLa76GwDMBTmR8s")
 
     client := &http.Client{Timeout: 30 * time.Second}
 
@@ -56,15 +58,18 @@ func sendToDest(url string, topic string, kafkaRecords []interface{}) {
     if err != nil {
     	fmt.Println(err)
 		fmt.Println(kafkaUrl)
-        return
+        return err
     }
     defer res.Body.Close()
     //fmt.Println(res.StatusCode)
     if res.StatusCode == 200 {
-    	//fmt.Printf("Successfully sent records to Kafka\n")
+    	fmt.Printf("Successfully sent records to Kafka\n")
     } else {
 		fmt.Println(kafkaUrl)
 		fmt.Println(string(recordsData))
     	fmt.Println("Failed to send Kafka records", res.Status)
+		err = errors.New("Failed to send Kafka records")
     }
+
+	return nil
 }

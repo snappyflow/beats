@@ -21,7 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
+	//"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -33,7 +33,7 @@ import (
 	"github.com/snappyflow/beats/v7/libbeat/logp"
 	"github.com/snappyflow/beats/v7/libbeat/outputs"
 	"github.com/snappyflow/beats/v7/libbeat/outputs/codec"
-	"github.com/snappyflow/beats/v7/libbeat/outputs/outil"
+	//"github.com/snappyflow/beats/v7/libbeat/outputs/outil"
 	"github.com/snappyflow/beats/v7/libbeat/publisher"
 	"github.com/snappyflow/beats/v7/libbeat/testing"
 )
@@ -42,7 +42,7 @@ type client struct {
 	log      *logp.Logger
 	observer outputs.Observer
 	hosts    []string
-	topic    outil.Selector
+	//topic    outil.Selector
 	key      *fmtstr.EventFormatString
 	index    string
 	codec    codec.Codec
@@ -73,7 +73,7 @@ func newKafkaClient(
 	hosts []string,
 	index string,
 	key *fmtstr.EventFormatString,
-	topic outil.Selector,
+	//topic outil.Selector,
 	writer codec.Codec,
 	cfg *sarama.Config,
 ) (*client, error) {
@@ -81,7 +81,7 @@ func newKafkaClient(
 		log:      logp.NewLogger(logSelector),
 		observer: observer,
 		hosts:    hosts,
-		topic:    topic,
+		//topic:    topic,
 		key:      key,
 		index:    strings.ToLower(index),
 		codec:    writer,
@@ -132,11 +132,12 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 	events := batch.Events()
 	c.observer.NewBatch(len(events))
 
-	var kafkaRecords []interface{}	
 	var valueData map[string]interface{}
-
+	data := make(map[string][]map[string]interface{})
+	eventsRecord := make(map[string][]publisher.Event)
+	failedEvents := events[:0]
+	var sendErr error
 	url := c.hosts[0]
-	//fmt.Println(c.topic)
 
 	ref := &msgRef{
 		client: c,
@@ -146,7 +147,6 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 		batch:  batch,
 	}
 
-	ch := c.producer.Input()
 	for i := range events {
 		d := &events[i]
 		msg, err := c.getEventMessage(d)
@@ -157,26 +157,47 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 			continue
 		}
 
-		//fmt.Println(msg)
-		//fmt.Println(msg.msg)
-		//fmt.Println(string(msg.key))
-		//fmt.Println(string(msg.value))
 		json.Unmarshal(msg.value, &valueData)
 		if labels, ok := valueData["labels"]; ok {
 			profileId := labels.(map[string]interface{})["_tag_profileId"].(string)
 			topic := "trace-" + profileId 
 			record := map[string]interface{}{"key": msg.key, "value": valueData}
-			kafkaRecords = append(kafkaRecords, record)
-			sendToDest(url, topic,  kafkaRecords)
-			kafkaRecords = kafkaRecords[:0]
+			if _, exist := data[topic]; exist {
+				data[topic] = append(data[topic], record)
+				eventsRecord[topic] = append(eventsRecord[topic], events[i])
+			} else {
+				rec := []map[string]interface{}{}
+				rec = append(rec, record)
+				data[topic] = rec
+				evnts := []publisher.Event{}
+				evnts = append(evnts, events[i])
+				eventsRecord[topic] = evnts
+			}
+			 
 		}
-
-		msg.ref = ref
-		msg.initProducerMessage()
-		ch <- &msg.msg
 	}
-	
-	return nil
+
+
+	if len(data) > 0 {
+		for topic, records := range data {
+			sendErr = sendToDest(url, topic,  records)
+			if sendErr != nil {
+				if evnts, ok:= eventsRecord[topic]; ok {
+					for _, event := range evnts {
+						failedEvents = append(failedEvents, event) 		
+					}
+				}
+			}
+		}
+	}
+
+	if len(failedEvents) == 0{
+		batch.ACK()
+	} else {
+		batch.RetryEvents(failedEvents)
+	}
+
+	return sendErr
 }
 
 func (c *client) String() string {
@@ -206,7 +227,7 @@ func (c *client) getEventMessage(data *publisher.Event) (*message, error) {
 			msg.topic = topic
 		}
 	}
-
+/*
 	if msg.topic == "" {
 		topic, err := c.topic.Select(event)
 		if err != nil {
@@ -220,7 +241,7 @@ func (c *client) getEventMessage(data *publisher.Event) (*message, error) {
 			return nil, fmt.Errorf("setting kafka topic in publisher event failed: %v", err)
 		}
 	}
-
+*/
 	serializedEvent, err := c.codec.Encode(c.index, event)
 	if err != nil {
 		if c.log.IsDebug() {
