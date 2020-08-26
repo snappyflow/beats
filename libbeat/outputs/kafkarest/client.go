@@ -158,6 +158,14 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 		}
 
 		json.Unmarshal(msg.value, &valueData)
+		if processor,  ok := valueData["processor"]; ok {
+            eventType := processor.(map[string]interface{})["event"].(string)
+            c.log.Debugf(eventType)
+            if(eventType == "metric"){
+                continue;
+            }
+        }
+
 		if labels, ok := valueData["labels"]; ok {
 			profileId := labels.(map[string]interface{})["_tag_profileId"].(string)
 			topic := "trace-" + profileId 
@@ -180,7 +188,7 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 
 	if len(data) > 0 {
 		for topic, records := range data {
-			sendErr = sendToDest(url, topic,  records)
+			sendErr = c.sendToDest(url, topic,  records)
 			if sendErr != nil {
 				if evnts, ok:= eventsRecord[topic]; ok {
 					for _, event := range evnts {
