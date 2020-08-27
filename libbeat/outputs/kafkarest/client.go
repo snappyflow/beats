@@ -139,7 +139,6 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 	events := batch.Events()
 	c.observer.NewBatch(len(events))
 
-	var valueData map[string]interface{}
 	data := make(map[string][]map[string]interface{})
 	eventsRecord := make(map[string][]publisher.Event)
 	failedEvents := events[:0]
@@ -154,7 +153,10 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 		batch:  batch,
 	}
 
+	dropped := 0
+
 	for i := range events {
+		var valueData map[string]interface{}
 		d := &events[i]
 		msg, err := c.getEventMessage(d)
 		if err != nil {
@@ -169,6 +171,7 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
             eventType := processor.(map[string]interface{})["event"].(string)
             c.log.Infof("eventType: %v", eventType)
             if(eventType == "metric"){
+				dropped += 1
                 continue;
             }
         }
@@ -177,9 +180,13 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 			profileId := labels.(map[string]interface{})["_tag_profileId"].(string)
 			topic := "trace-" + profileId 
 			record := map[string]interface{}{"key": msg.key, "value": valueData}
-			if _, exist := data[topic]; exist {
-				data[topic] = append(data[topic], record)
-				eventsRecord[topic] = append(eventsRecord[topic], events[i])
+			if rec, exist := data[topic]; exist {
+				rec = append(rec, record)
+				data[topic] = rec
+				if evnts, exst := eventsRecord[topic]; exst {
+					evnts = append(evnts, events[i])
+					eventsRecord[topic] = evnts
+				}
 			} else {
 				rec := []map[string]interface{}{}
 				rec = append(rec, record)
@@ -191,6 +198,7 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 			 
 		}
 	}
+	c.observer.Dropped(dropped)
 
 
 	if len(data) > 0 {
