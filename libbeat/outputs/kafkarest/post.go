@@ -29,20 +29,17 @@ import (
 func (c *client) sendToDest(url string, topic string, kafkaRecords []map[string]interface{})error {
 
 	kafkaUrl := "http://" + url +"/topics/" + topic
-	//fmt.Println(kafkaUrl)
 
 	records := make(map[string]interface{})
 	records["records"] = kafkaRecords
-	//fmt.Println(records)
 
 	recordsData, err := json.Marshal(records)
-	//fmt.Println(string(recordsData))
     if err != nil {
         fmt.Println(err)
         return err
     }
 
-	c.log.Debugf("No of records to be sent %d\n", len(kafkaRecords))
+	c.log.Infof("No of records to be sent %d\n", len(kafkaRecords))
 	req, err := http.NewRequest("POST", kafkaUrl, bytes.NewBuffer(recordsData))
     if err != nil {
 		//fmt.Println(err)
@@ -56,17 +53,17 @@ func (c *client) sendToDest(url string, topic string, kafkaRecords []map[string]
 
     res, err := client.Do(req)
     if err != nil {
-		c.log.Debugf(kafkaUrl)
-        fmt.Println(err)
+		c.log.Infof(kafkaUrl)
+    	fmt.Println(err)
         return err
     }
     defer res.Body.Close()
     if res.StatusCode == 200 {
-		c.log.Debugf("Successfully sent records to Kafka\n")
+		c.log.Infof("Successfully sent records to Kafka\n")
     } else {
-		c.log.Debugf(kafkaUrl)
-        c.log.Debugf(string(recordsData))
-        c.log.Debugf("Failed to send Kafka records", res.Status)
+		c.log.Infof(kafkaUrl)
+		c.log.Infof(string(recordsData))
+		c.log.Infof("Failed to send Kafka records", res.Status)
 		err = errors.New("Failed to send Kafka records")
     }
 
