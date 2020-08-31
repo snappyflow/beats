@@ -27,6 +27,11 @@ import (
 )
 
 func (c *client) sendToDest(url string, topic string, kafkaRecords []map[string]interface{})error {
+	if c.token != ""{ 
+		c.log.Infof(c.token)
+	} else {
+		c.log.Infof("No Auth token")
+	}
 
 	kafkaUrl := "http://" + url +"/topics/" + topic
 
@@ -47,9 +52,11 @@ func (c *client) sendToDest(url string, topic string, kafkaRecords []map[string]
     }
 
 	req.Header.Set("Content-Type", "application/vnd.kafka.json.v2+json")
-	req.Header.Set("Authorization", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWJqZWN0IjoiYWRtaW4vYWRtaW4iLCJpc3MiOiJsb2dhcmNoaXZhbCJ9.Aqhl-amaKaKDoXDc0-8TN4hhI7FFkLa76GwDMBTmR8s")
+	if c.token != "" {
+		req.Header.Set("Authorization", c.token)
+	}
 
-    client := &http.Client{Timeout: 30 * time.Second}
+    client := &http.Client{Timeout: 5 * time.Second}
 
     res, err := client.Do(req)
     if err != nil {

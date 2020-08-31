@@ -49,10 +49,10 @@ var (
 func init() {
 	sarama.Logger = kafkaLogger{log: logp.NewLogger(logSelector)}
 
-	outputs.RegisterType("kafkarest", makeKafka)
+	outputs.RegisterType("kafkarest", makeKafkaRest)
 }
 
-func makeKafka(
+func makeKafkaRest(
 	_ outputs.IndexManager,
 	beat beat.Info,
 	observer outputs.Observer,
@@ -87,8 +87,9 @@ func makeKafka(
 		return outputs.Fail(err)
 	}
 
-	//client, err := newKafkaClient(observer, hosts, beat.IndexPrefix, config.Key, topic, codec, libCfg)
-	client, err := newKafkaRestClient(observer, hosts, beat.IndexPrefix, config.Key, codec, cfg)
+	token := getToken(cfg)
+
+	client, err := newKafkaRestClient(observer, hosts, beat.IndexPrefix, config.Key, codec, cfg, token)
 	if err != nil {
 		return outputs.Fail(err)
 	}
@@ -108,4 +109,19 @@ func buildTopicSelector(cfg *common.Config) (outil.Selector, error) {
 		FailEmpty:        true,
 		Case:             outil.SelectorKeepCase,
 	})
+}
+
+func getToken(cfg *common.Config) (string) {
+	config := struct {
+		Token  string `config:"token"`
+	}{}
+
+	err := cfg.Unpack(&config)
+	if err != nil {
+		return ""
+	}
+
+	token := config.Token
+
+	return token;
 }
