@@ -113,7 +113,7 @@ func defaultConfig() kafkaConfig {
 		TLS:                nil,
 		Kerberos:           nil,
 		Timeout:            30 * time.Second,
-		BulkMaxSize:        2048,
+		BulkMaxSize:        50,
 		BulkFlushFrequency: 0,
 		Metadata: metaConfig{
 			Retry: metaRetryConfig{
