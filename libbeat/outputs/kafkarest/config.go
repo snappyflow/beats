@@ -69,7 +69,7 @@ type kafkaConfig struct {
 	Password           string                    `config:"password"`
 	Codec              codec.Config              `config:"codec"`
 	Sasl               saslConfig                `config:"sasl"`
-	Token			   string					 `config:"token"`
+	Token              string                    `config:"token"`
 }
 
 type saslConfig struct {
@@ -139,7 +139,7 @@ func defaultConfig() kafkaConfig {
 		ChanBufferSize: 256,
 		Username:       "",
 		Password:       "",
-		Token:			"",
+		Token:          "",
 	}
 }
 

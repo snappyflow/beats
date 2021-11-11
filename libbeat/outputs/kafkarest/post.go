@@ -21,58 +21,53 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
 )
 
-func (c *client) sendToDest(url string, topic string, kafkaRecords []map[string]interface{})error {
-	if c.token != ""{ 
-		c.log.Infof(c.token)
+func (c *client) sendToDest(url string, topic string, kafkaRecords []map[string]interface{}) error {
+	if c.token != "" {
+		c.log.Debugf(c.token)
 	} else {
-		c.log.Infof("No Auth token")
+		c.log.Debugf("No Auth token")
 	}
 
-	kafkaUrl := "http://" + url +"/topics/" + topic
+	kafkaUrl := "http://" + url + "/topics/" + topic
 
 	records := make(map[string]interface{})
 	records["records"] = kafkaRecords
 
 	recordsData, err := json.Marshal(records)
-    if err != nil {
-        fmt.Println(err)
-        return err
-    }
+	if err != nil {
+		c.log.Errorf("Error: %+v", err)
+		return err
+	}
 
 	c.log.Infof("No of records to be sent %d\n", len(kafkaRecords))
 	req, err := http.NewRequest("POST", kafkaUrl, bytes.NewBuffer(recordsData))
-    if err != nil {
-		//fmt.Println(err)
-        return  err
-    }
+	if err != nil {
+		c.log.Errorf("Error: %+v", err)
+		return err
+	}
 
 	req.Header.Set("Content-Type", "application/vnd.kafka.json.v2+json")
 	if c.token != "" {
 		req.Header.Set("Authorization", c.token)
 	}
 
-    client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{Timeout: 5 * time.Second}
 
-    res, err := client.Do(req)
-    if err != nil {
-		c.log.Infof(kafkaUrl)
-    	fmt.Println(err)
-        return err
-    }
-    defer res.Body.Close()
-    if res.StatusCode == 200 {
+	res, err := client.Do(req)
+	if err != nil {
+		c.log.Errorf("Error: %+v", err)
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode == 200 {
 		c.log.Infof("Successfully sent records to Kafka\n")
-    } else {
-		c.log.Infof(kafkaUrl)
-		c.log.Infof(string(recordsData))
-		c.log.Infof("Failed to send Kafka records", res.Status)
+	} else {
+		c.log.Errorf("Failed to send Kafka records", res.Status)
 		err = errors.New("Failed to send Kafka records")
-    }
-
+	}
 	return nil
 }

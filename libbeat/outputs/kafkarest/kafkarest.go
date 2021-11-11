@@ -59,24 +59,24 @@ func makeKafkaRest(
 	cfg *common.Config,
 ) (outputs.Group, error) {
 	log := logp.NewLogger(logSelector)
-	log.Info("initialize kafkarest output")
+	log.Debug("initialize kafkarest output")
 
 	config, err := readConfig(cfg)
 	if err != nil {
 		return outputs.Fail(err)
 	}
-/*
-	topic, err := buildTopicSelector(cfg)
-	if err != nil {
-		return outputs.Fail(err)
-	}
-*/
-/*
-	libCfg, err := newSaramaConfig(log, config)
-	if err != nil {
-		return outputs.Fail(err)
-	}
-*/
+	/*
+		topic, err := buildTopicSelector(cfg)
+		if err != nil {
+			return outputs.Fail(err)
+		}
+	*/
+	/*
+		libCfg, err := newSaramaConfig(log, config)
+		if err != nil {
+			return outputs.Fail(err)
+		}
+	*/
 	hosts, err := outputs.ReadHostList(cfg)
 	if err != nil {
 		return outputs.Fail(err)
@@ -111,9 +111,9 @@ func buildTopicSelector(cfg *common.Config) (outil.Selector, error) {
 	})
 }
 
-func getToken(cfg *common.Config) (string) {
+func getToken(cfg *common.Config) string {
 	config := struct {
-		Token  string `config:"token"`
+		Token string `config:"token"`
 	}{}
 
 	err := cfg.Unpack(&config)
@@ -123,5 +123,5 @@ func getToken(cfg *common.Config) (string) {
 
 	token := config.Token
 
-	return token;
+	return token
 }

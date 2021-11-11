@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+
 	//"fmt"
 	"strings"
 	//"sync"
@@ -35,6 +36,7 @@ import (
 	"github.com/snappyflow/beats/v7/libbeat/logp"
 	"github.com/snappyflow/beats/v7/libbeat/outputs"
 	"github.com/snappyflow/beats/v7/libbeat/outputs/codec"
+
 	//"github.com/snappyflow/beats/v7/libbeat/outputs/outil"
 	"github.com/snappyflow/beats/v7/libbeat/publisher"
 	"github.com/snappyflow/beats/v7/libbeat/testing"
@@ -45,18 +47,18 @@ type client struct {
 	observer outputs.Observer
 	hosts    []string
 	//topic    outil.Selector
-	key      *fmtstr.EventFormatString
-	index    string
-	codec    codec.Codec
+	key   *fmtstr.EventFormatString
+	index string
+	codec codec.Codec
 	//config   sarama.Config
-	config   common.Config
+	config common.Config
 	//mux      sync.Mutex
 
 	//producer sarama.AsyncProducer
 
 	//wg sync.WaitGroup
 
-	token	 string
+	token string
 }
 
 type msgRef struct {
@@ -91,51 +93,49 @@ func newKafkaRestClient(
 		index:    strings.ToLower(index),
 		codec:    writer,
 		config:   *cfg,
-		token:	  token,
+		token:    token,
 	}
 	return c, nil
 }
 
-
 func (c *client) Connect() error {
-/*
-	c.mux.Lock()
-	defer c.mux.Unlock()
+	/*
+		c.mux.Lock()
+		defer c.mux.Unlock()
 
-	c.log.Debugf("connect: %v", c.hosts)
+		c.log.Debugf("connect: %v", c.hosts)
 
-	// try to connect
-	producer, err := sarama.NewAsyncProducer(c.hosts, &c.config)
-	if err != nil {
-		c.log.Errorf("Kafka connect fails with: %+v", err)
-		return err
-	}
+		// try to connect
+		producer, err := sarama.NewAsyncProducer(c.hosts, &c.config)
+		if err != nil {
+			c.log.Errorf("Kafka connect fails with: %+v", err)
+			return err
+		}
 
-	c.producer = producer
+		c.producer = producer
 
-	c.wg.Add(2)
-	go c.successWorker(producer.Successes())
-	go c.errorWorker(producer.Errors())
-*/
+		c.wg.Add(2)
+		go c.successWorker(producer.Successes())
+		go c.errorWorker(producer.Errors())
+	*/
 	return nil
 }
 
-
 func (c *client) Close() error {
-/*
-	c.mux.Lock()
-	defer c.mux.Unlock()
-	c.log.Debug("closed kafka client")
+	/*
+		c.mux.Lock()
+		defer c.mux.Unlock()
+		c.log.Debug("closed kafka client")
 
-	// producer was not created before the close() was called.
-	if c.producer == nil {
-		return nil
-	}
+		// producer was not created before the close() was called.
+		if c.producer == nil {
+			return nil
+		}
 
-	c.producer.AsyncClose()
-	c.wg.Wait()
-	c.producer = nil
-*/
+		c.producer.AsyncClose()
+		c.wg.Wait()
+		c.producer = nil
+	*/
 	return nil
 }
 
@@ -171,18 +171,18 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 		}
 
 		json.Unmarshal(msg.value, &valueData)
-		if processor,  ok := valueData["processor"]; ok {
-            eventType := processor.(map[string]interface{})["event"].(string)
-            c.log.Infof("eventType: %v", eventType)
-            if(eventType == "metric"){
+		if processor, ok := valueData["processor"]; ok {
+			eventType := processor.(map[string]interface{})["event"].(string)
+			c.log.Debugf("eventType: %v", eventType)
+			if eventType == "metric" {
 				dropped += 1
-                continue;
-            }
-        }
+				continue
+			}
+		}
 
 		if labels, ok := valueData["labels"]; ok {
 			profileId := labels.(map[string]interface{})["_tag_profileId"].(string)
-			topic := "trace-" + profileId 
+			topic := "trace-" + profileId
 			record := map[string]interface{}{"key": msg.key, "value": valueData}
 			if rec, exist := data[topic]; exist {
 				rec = append(rec, record)
@@ -199,26 +199,25 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 				evnts = append(evnts, events[i])
 				eventsRecord[topic] = evnts
 			}
-			 
+
 		}
 	}
 	c.observer.Dropped(dropped)
 
-
 	if len(data) > 0 {
 		for topic, records := range data {
-			sendErr = c.sendToDest(url, topic,  records)
+			sendErr = c.sendToDest(url, topic, records)
 			if sendErr != nil {
-				if evnts, ok:= eventsRecord[topic]; ok {
+				if evnts, ok := eventsRecord[topic]; ok {
 					for _, event := range evnts {
-						failedEvents = append(failedEvents, event) 		
+						failedEvents = append(failedEvents, event)
 					}
 				}
 			}
 		}
 	}
 
-	if len(failedEvents) == 0{
+	if len(failedEvents) == 0 {
 		batch.ACK()
 	} else {
 		batch.RetryEvents(failedEvents)
@@ -254,21 +253,21 @@ func (c *client) getEventMessage(data *publisher.Event) (*message, error) {
 			msg.topic = topic
 		}
 	}
-/*
-	if msg.topic == "" {
-		topic, err := c.topic.Select(event)
-		if err != nil {
-			return nil, fmt.Errorf("setting kafka topic failed with %v", err)
+	/*
+		if msg.topic == "" {
+			topic, err := c.topic.Select(event)
+			if err != nil {
+				return nil, fmt.Errorf("setting kafka topic failed with %v", err)
+			}
+			if topic == "" {
+				return nil, errNoTopicsSelected
+			}
+			msg.topic = topic
+			if _, err := data.Cache.Put("topic", topic); err != nil {
+				return nil, fmt.Errorf("setting kafka topic in publisher event failed: %v", err)
+			}
 		}
-		if topic == "" {
-			return nil, errNoTopicsSelected
-		}
-		msg.topic = topic
-		if _, err := data.Cache.Put("topic", topic); err != nil {
-			return nil, fmt.Errorf("setting kafka topic in publisher event failed: %v", err)
-		}
-	}
-*/
+	*/
 	serializedEvent, err := c.codec.Encode(c.index, event)
 	if err != nil {
 		if c.log.IsDebug() {
@@ -280,12 +279,12 @@ func (c *client) getEventMessage(data *publisher.Event) (*message, error) {
 	buf := make([]byte, len(serializedEvent))
 	copy(buf, serializedEvent)
 	msg.value = buf
-/*
-	// message timestamps have been added to kafka with version 0.10.0.0
-	if c.config.Version.IsAtLeast(sarama.V0_10_0_0) {
-		msg.ts = event.Timestamp
-	}
-*/
+	/*
+		// message timestamps have been added to kafka with version 0.10.0.0
+		if c.config.Version.IsAtLeast(sarama.V0_10_0_0) {
+			msg.ts = event.Timestamp
+		}
+	*/
 	if c.key != nil {
 		if key, err := c.key.RunBytes(event); err == nil {
 			msg.key = key
@@ -346,7 +345,7 @@ func (r *msgRef) dec() {
 		return
 	}
 
-	r.client.log.Info("finished kafka batch")
+	r.client.log.Debug("finished kafka batch")
 	stats := r.client.observer
 
 	err := r.err
@@ -360,7 +359,7 @@ func (r *msgRef) dec() {
 			stats.Acked(success)
 		}
 
-		r.client.log.Infof("Kafka publish failed with: %+v", err)
+		r.client.log.Errorf("Kafka publish failed with: %+v", err)
 	} else {
 		r.batch.ACK()
 		stats.Acked(r.total)
@@ -368,18 +367,17 @@ func (r *msgRef) dec() {
 }
 
 func (c *client) Test(d testing.Driver) {
-/*
-	if c.config.Net.TLS.Enable == true {
-		d.Warn("TLS", "Kafka output doesn't support TLS testing")
-	}
-	for _, host := range c.hosts {
-		d.Run("Kafka: "+host, func(d testing.Driver) {
-			netDialer := transport.TestNetDialer(d, c.config.Net.DialTimeout)
-			_, err := netDialer.Dial("tcp", host)
-			d.Error("dial up", err)
-		})
-	}
+	/*
+		if c.config.Net.TLS.Enable == true {
+			d.Warn("TLS", "Kafka output doesn't support TLS testing")
+		}
+		for _, host := range c.hosts {
+			d.Run("Kafka: "+host, func(d testing.Driver) {
+				netDialer := transport.TestNetDialer(d, c.config.Net.DialTimeout)
+				_, err := netDialer.Dial("tcp", host)
+				d.Error("dial up", err)
+			})
+		}
 
-*/
+	*/
 }
-
