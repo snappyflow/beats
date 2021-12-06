@@ -189,16 +189,23 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 			if redactBody != nil {
 				topics = append(topics, "log-"+profileId)
 			}
-			
-			httpBodyString := valueData["http"].(map[string]interface{})["request"].(map[string]interface{})["body"]
+			var httpBodyString interface{} = nil
+			httpRequestBodyFound := false
+
+			if http, httpFound := valueData["http"]; httpFound {
+				if request, requestFound := http.(map[string]interface{})["request"]; requestFound {
+					httpBodyString = request.(map[string]interface{})["body"]
+					httpRequestBodyFound = true
+				}
+			}
+			// httpBodyString = valueData["http"].(map[string]interface{})["request"].(map[string]interface{})["body"]
 		
 			for _, topic := range topics {
 				record := map[string]interface{}{"key": msg.key, "value": valueData}
 				// Only remove if redactBody Tag is present in labels
-				if redactBody != nil {
+				if redactBody != nil && httpRequestBodyFound {
 					if strings.Contains(topic, "trace") {
 						c.log.Debug("Deleteing http body from trace data ")
-						// httpBody := valueData["http"].(map[string]interface{})["request"].(map[string]interface{})["body"]
 						delete(valueData["http"].(map[string]interface{})["request"].(map[string]interface{}), "body")
 					}
 					if strings.Contains(topic, "log") {
