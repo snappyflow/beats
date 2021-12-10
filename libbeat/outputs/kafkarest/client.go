@@ -181,13 +181,26 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 		}
 
 		if labels, ok := valueData["labels"]; ok {
+
 			profileId := labels.(map[string]interface{})["_tag_profileId"].(string)
 			redactBody := labels.(map[string]interface{})["_tag_redact_body"]
-		
+
 			topics := make([]string, 0)
 			topics = append(topics, "trace-"+profileId)
+			indexType := "log"
+			docType := "user-input"
 			if redactBody != nil {
-				topics = append(topics, "log-"+profileId)
+				tagIndexType := labels.(map[string]interface{})["_tagIndexType"]
+				tagDocType := labels.(map[string]interface{})["_tag_documentType"]
+				if tagIndexType != nil {
+					if strings.Contains(strings.ToLower(tagIndexType.(string)), "metric") {
+						indexType = "metric"
+					}
+				}
+				if tagDocType != nil {
+					docType = tagDocType.(string)
+				}
+				topics = append(topics, indexType+"-"+profileId)
 			}
 			var httpBodyString interface{} = nil
 			httpRequestBodyFound := false
@@ -199,7 +212,7 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 				}
 			}
 			// httpBodyString = valueData["http"].(map[string]interface{})["request"].(map[string]interface{})["body"]
-		
+
 			for _, topic := range topics {
 				record := map[string]interface{}{"key": msg.key, "value": valueData}
 				// Only remove if redactBody Tag is present in labels
@@ -208,20 +221,21 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 						c.log.Debug("Deleteing http body from trace data ")
 						delete(valueData["http"].(map[string]interface{})["request"].(map[string]interface{}), "body")
 					}
-					if strings.Contains(topic, "log") {
-					 	logData := make(map[string]interface{})
-
+					if strings.Contains(topic, "log") || strings.Contains(topic, "metric") {
+						logData := make(map[string]interface{})
+						// logData["_traceBody"] = make(map[string]interface{})
+						traceBody := make(map[string]interface{})
 						if httpBodyString != nil {
 							httpBodyString = httpBodyString.(map[string]interface{})["original"]
 
-							c.log.Debugf("trace httpd body found : %+v ",  httpBodyString)
+							c.log.Debugf("trace httpd body found : %+v ", httpBodyString)
 							httpBody := map[string]interface{}{}
 							if err := json.Unmarshal([]byte(httpBodyString.(string)), &httpBody); err != nil {
 								c.log.Errorf("Error Parsing http body: %+v", err)
 								// If error is found do not send log data
 								continue
 							} else {
-								logData["body"] = httpBody
+								traceBody["body"] = httpBody
 								// valueData["http"].(map[string]interface{})["request"].(map[string]interface{})["body"] = httpBody
 							}
 						} else {
@@ -229,26 +243,40 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 							c.log.Debug("Trace http body not found")
 							continue
 						}
-
-						logData["time"] = int(valueData["timestamp"].(map[string]interface{})["us"].(float64)) / 1000
-						logData["trace_id"] = valueData["trace"].(map[string]interface{})["id"]
-						logData["transaction_id"] = valueData["transaction"].(map[string]interface{})["id"]
+						traceBody["url"] = valueData["url"]
+						traceBody["service"] = valueData["service"]
+						traceBody["labels"] = valueData["labels"]
+						delete(traceBody["labels"].(map[string]interface{}), "_tag_documentType")
+						delete(traceBody["labels"].(map[string]interface{}), "_tagIndexType")
+						delete(traceBody["labels"].(map[string]interface{}), "_tag_redact_body")
+						traceBody["processor"] = valueData["processor"]
+						traceBody["source"] = valueData["source"]
+						traceBody["agent"] = valueData["agent"]
+						traceBody["trace_id"] = valueData["trace"].(map[string]interface{})["id"]
+						traceBody["transaction_id"] = valueData["transaction"].(map[string]interface{})["id"]
+						if valueData["user"] == nil {
+							traceBody["user"] = make(map[string]interface{})
+						} else {
+							traceBody["user"] = valueData["user"]
+						}
 
 						c.log.Debugf("Inside trace http body : %v", topic)
+						logData["_traceBody"] = traceBody
+						logData["time"] =
+							int(valueData["timestamp"].(map[string]interface{})["us"].(float64)) / 1000
 
 						logData["_plugin"] = "trace_body"
-						logData["_documentType"] = "user_input"
-					
+						logData["_documentType"] = docType
+
 						logData["_tag_projectName"] = labels.(map[string]interface{})["_tag_projectName"].(string)
 						logData["_tag_appName"] = labels.(map[string]interface{})["_tag_appName"].(string)
 
-
 						logData["message"] = "Trace request body"
 						c.log.Debugf("Deleteing http body from trace data %+v , %+v", logData["_tag_projectName"], logData["_tag_appName"])
-						
+
 						record["value"] = logData
 					}
-					
+
 				}
 				if rec, exist := data[topic]; exist {
 					rec = append(rec, record)
@@ -266,7 +294,7 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 					eventsRecord[topic] = evnts
 				}
 			}
-		
+
 		}
 	}
 	c.observer.Dropped(dropped)
