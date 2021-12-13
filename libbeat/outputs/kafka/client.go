@@ -19,8 +19,8 @@ package kafka
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -138,7 +138,8 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 		failed: nil,
 		batch:  batch,
 	}
-
+	dropped := 0
+	var valueData map[string]interface{}
 	ch := c.producer.Input()
 	for i := range events {
 		d := &events[i]
@@ -149,12 +150,32 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 			c.observer.Dropped(1)
 			continue
 		}
-
+		json.Unmarshal(msg.value, &valueData)
+		if processor, ok := valueData["processor"]; ok {
+			eventType := processor.(map[string]interface{})["event"].(string)
+			c.log.Debugf("eventType: %v", eventType)
+			if eventType == "metric" {
+				dropped += 1
+				continue
+			}
+		}
+		labels, ok := valueData["labels"]
+		if !ok {
+			dropped += 1
+			continue
+		}
+		profileId, ok := labels.(map[string]interface{})["_tag_profileId"].(string)
+		if !ok {
+			dropped += 1
+			continue
+		}
+		msg.topic = "trace-" + profileId
+		c.log.Debugf("Kafka Topic: %v", msg.topic)
 		msg.ref = ref
 		msg.initProducerMessage()
 		ch <- &msg.msg
 	}
-
+	c.observer.Dropped(dropped)
 	return nil
 }
 
@@ -176,29 +197,29 @@ func (c *client) getEventMessage(data *publisher.Event) (*message, error) {
 		}
 	}
 
-	value, err = data.Cache.GetValue("topic")
-	if err == nil {
-		if c.log.IsDebug() {
-			c.log.Debugf("got event.Meta[\"topic\"] = %v", value)
-		}
-		if topic, ok := value.(string); ok {
-			msg.topic = topic
-		}
-	}
+	// value, err = data.Cache.GetValue("topic")
+	// if err == nil {
+	// 	if c.log.IsDebug() {
+	// 		c.log.Debugf("got event.Meta[\"topic\"] = %v", value)
+	// 	}
+	// 	if topic, ok := value.(string); ok {
+	// 		msg.topic = topic
+	// 	}
+	// }
 
-	if msg.topic == "" {
-		topic, err := c.topic.Select(event)
-		if err != nil {
-			return nil, fmt.Errorf("setting kafka topic failed with %v", err)
-		}
-		if topic == "" {
-			return nil, errNoTopicsSelected
-		}
-		msg.topic = topic
-		if _, err := data.Cache.Put("topic", topic); err != nil {
-			return nil, fmt.Errorf("setting kafka topic in publisher event failed: %v", err)
-		}
-	}
+	// if msg.topic == "" {
+	// 	topic, err := c.topic.Select(event)
+	// 	if err != nil {
+	// 		return nil, fmt.Errorf("setting kafka topic failed with %v", err)
+	// 	}
+	// 	if topic == "" {
+	// 		return nil, errNoTopicsSelected
+	// 	}
+	// 	msg.topic = topic
+	// 	if _, err := data.Cache.Put("topic", topic); err != nil {
+	// 		return nil, fmt.Errorf("setting kafka topic in publisher event failed: %v", err)
+	// 	}
+	// }
 
 	serializedEvent, err := c.codec.Encode(c.index, event)
 	if err != nil {
