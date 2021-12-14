@@ -19,6 +19,7 @@ package elasticsearch
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -263,6 +264,125 @@ func (client *Client) publishEvents(ctx context.Context, data []publisher.Event)
 	return nil, nil
 }
 
+func interceptDocument(log *logp.Logger, index outputs.IndexSelector, event beat.Event) (bool, beat.Event) {
+	var valueData map[string]interface{}
+	processRequired := false
+	newEvent := beat.Event{}
+
+	// event.SetID()
+	// beat, err := event.Private
+	// log.Infof("Event meta  %+v", )
+	indexName, err := index.Select(&event)
+	newIndex := ""
+	if err != nil {
+		log.Debug("Index not found: Parse error")
+	}
+	log.Debugf("Index name %+v", indexName)
+
+	msg, err := getEventMessage(log, indexName, &event)
+	if err != nil {
+		log.Infof("Dropping event: %+v", err)
+	}
+	json.Unmarshal(msg, &valueData)
+	// log.Infof("Document data %+v", valueData)
+	if labels, ok := valueData["labels"]; ok {
+		profileId := labels.(map[string]interface{})["_tag_profileId"].(string)
+		projectName := labels.(map[string]interface{})["_tag_projectName"].(string)
+		redactBody := labels.(map[string]interface{})["_tag_redact_body"]
+
+		var httpBodyString interface{} = nil
+		httpRequestBodyFound := false
+
+		if http, httpFound := valueData["http"]; httpFound {
+			if request, requestFound := http.(map[string]interface{})["request"]; requestFound {
+				httpBodyString = request.(map[string]interface{})["body"]
+				httpRequestBodyFound = true
+			}
+		}
+
+		// Only remove if redactBody Tag is present in labels
+		if redactBody != nil && httpRequestBodyFound && strings.Contains(strings.ToLower(indexName), "trace") {
+			indexType := "log"
+			docType := "user-input"
+			tagIndexType := labels.(map[string]interface{})["_tagIndexType"]
+			tagDocType := labels.(map[string]interface{})["_tag_documentType"]
+			if tagIndexType != nil {
+				if strings.Contains(strings.ToLower(tagIndexType.(string)), "metric") {
+					indexType = "metric"
+				}
+			}
+			if tagDocType != nil {
+				docType = tagDocType.(string)
+			}
+			newIndex = indexType + "-" + profileId + "-" + getMetricName(projectName) + "-$_write"
+			// newEvent := event
+			newEvent.Meta = event.Meta.Clone()
+			newEvent.Fields = event.Fields.Clone()
+			newEvent.Private = event.Private
+			newEvent.Timestamp = event.Timestamp
+			// newEvent.Fields.Put()
+
+			for key, _ := range valueData {
+				newEvent.Fields.Delete(key)
+			}
+			newEvent.Meta.Put("snappyflow_index", newIndex)
+
+			traceBody := make(map[string]interface{})
+			if httpBodyString != nil {
+				httpBodyString = httpBodyString.(map[string]interface{})["original"]
+
+				log.Debugf("trace httpd body found : %+v ", httpBodyString)
+				httpBody := map[string]interface{}{}
+				if err := json.Unmarshal([]byte(httpBodyString.(string)), &httpBody); err != nil {
+					log.Errorf("Error Parsing http body: %+v", err)
+					// If error is found do not send log data
+				} else {
+					traceBody["request_body"] = httpBody
+					// valueData["http"].(map[string]interface{})["request"].(map[string]interface{})["body"] = httpBody
+				}
+			} else {
+				// If httpd body is not found do not send log data
+				log.Debug("Trace http body not found")
+			}
+			traceBody["url"] = valueData["url"]
+			traceBody["service"] = valueData["service"]
+			traceBody["labels"] = valueData["labels"]
+			delete(traceBody["labels"].(map[string]interface{}), "_tag_documentType")
+			delete(traceBody["labels"].(map[string]interface{}), "_tagIndexType")
+			delete(traceBody["labels"].(map[string]interface{}), "_tag_redact_body")
+			traceBody["processor"] = valueData["processor"]
+			traceBody["source"] = valueData["source"]
+			traceBody["agent"] = valueData["agent"]
+			traceBody["status"], _ = event.Fields.GetValue("http.response.status_code")
+
+			if valueData["user"] == nil {
+				traceBody["user"] = make(map[string]interface{})
+			} else {
+				traceBody["user"] = valueData["user"]
+			}
+			// log.Debugf("new Index %+v", newIndex)
+			// log.Debugf("Inside trace http body :")
+			newEvent.Fields.Put("_traceBody", traceBody)
+			newEvent.Fields.Put("time", int(valueData["timestamp"].(map[string]interface{})["us"].(float64))/1000)
+
+			newEvent.Fields.Put("_plugin", "trace_body")
+			newEvent.Fields.Put("_documentType", docType)
+
+			newEvent.Fields.Put("_tag_projectName", labels.(map[string]interface{})["_tag_projectName"].(string))
+			newEvent.Fields.Put("_tag_appName", labels.(map[string]interface{})["_tag_appName"].(string))
+
+			newEvent.Fields.Put("message", "Trace request body")
+			newEvent.Fields.Put("trace_id", valueData["trace"].(map[string]interface{})["id"])
+			newEvent.Fields.Put("transaction_id", valueData["transaction"].(map[string]interface{})["id"])
+
+			log.Debug("Deleteing http body from trace data")
+			event.Fields.Delete("http.request.body")
+			processRequired = true
+		}
+	}
+	return processRequired, newEvent
+}
+
 // bulkEncodePublishRequest encodes all bulk requests and returns slice of events
 // successfully added to the list of bulk items and the list of bulk items.
 func bulkEncodePublishRequest(
@@ -272,11 +392,25 @@ func bulkEncodePublishRequest(
 	pipeline *outil.Selector,
 	data []publisher.Event,
 ) ([]publisher.Event, []interface{}) {
-
-	okEvents := data[:0]
-	bulkItems := []interface{}{}
+	var newData []publisher.Event
 	for i := range data {
-		event := &data[i].Content
+		event := data[i].Content
+		newData = append(newData, data[i])
+		processRequired, newEvent := interceptDocument(log, index, event)
+		if processRequired {
+			pEvent := publisher.Event{}
+			pEvent.Cache = data[i].Cache
+			pEvent.Flags = data[i].Flags
+			pEvent.Content = newEvent
+			newData = append(newData, pEvent)
+		}
+	}
+	okEvents := newData[:0]
+	bulkItems := []interface{}{}
+
+	// pEvent
+	for i := range newData {
+		event := &newData[i].Content
 		meta, err := createEventBulkMeta(log, version, index, pipeline, event)
 		if err != nil {
 			log.Errorf("Failed to encode event meta data: %+v", err)
@@ -288,7 +422,7 @@ func bulkEncodePublishRequest(
 		} else {
 			bulkItems = append(bulkItems, meta, event)
 		}
-		okEvents = append(okEvents, data[i])
+		okEvents = append(okEvents, newData[i])
 	}
 	return okEvents, bulkItems
 }
@@ -312,9 +446,15 @@ func createEventBulkMeta(
 	}
 
 	index, err := indexSel.Select(event)
-	if err != nil {
-		err := fmt.Errorf("failed to select event index: %v", err)
-		return nil, err
+	if index == "" {
+		metricIndex, notFoundErr := event.Meta.GetValue("snappyflow_index")
+		if notFoundErr == nil {
+			index = metricIndex.(string)
+		}
+		if err != nil && notFoundErr != nil {
+			err := fmt.Errorf("failed to select event index: %v", err)
+			return nil, err
+		}
 	}
 
 	id, _ := events.GetMetaStringValue(*event, events.FieldMetaID)
