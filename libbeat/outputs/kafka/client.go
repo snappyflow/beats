@@ -310,7 +310,7 @@ func (r *msgRef) dec() {
 			stats.Acked(success)
 		}
 
-		r.client.log.Debugf("Kafka publish failed with: %+v", err)
+		r.client.log.Errorf("Kafka publish failed with: %+v", err)
 	} else {
 		r.batch.ACK()
 		stats.Acked(r.total)
