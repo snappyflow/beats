@@ -235,7 +235,7 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 								// If error is found do not send log data
 								continue
 							} else {
-								traceBody["body"] = httpBody
+								traceBody["request_body"] = httpBody
 								// valueData["http"].(map[string]interface{})["request"].(map[string]interface{})["body"] = httpBody
 							}
 						} else {
@@ -252,8 +252,8 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 						traceBody["processor"] = valueData["processor"]
 						traceBody["source"] = valueData["source"]
 						traceBody["agent"] = valueData["agent"]
-						traceBody["trace_id"] = valueData["trace"].(map[string]interface{})["id"]
-						traceBody["transaction_id"] = valueData["transaction"].(map[string]interface{})["id"]
+						traceBody["status"] = valueData["http"].(map[string]interface{})["response"].(map[string]interface{})["status_code"]
+
 						if valueData["user"] == nil {
 							traceBody["user"] = make(map[string]interface{})
 						} else {
@@ -270,6 +270,9 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 
 						logData["_tag_projectName"] = labels.(map[string]interface{})["_tag_projectName"].(string)
 						logData["_tag_appName"] = labels.(map[string]interface{})["_tag_appName"].(string)
+
+						logData["trace_id"] = valueData["trace"].(map[string]interface{})["id"]
+						logData["transaction_id"] = valueData["transaction"].(map[string]interface{})["id"]
 
 						logData["message"] = "Trace request body"
 						c.log.Debugf("Deleteing http body from trace data %+v , %+v", logData["_tag_projectName"], logData["_tag_appName"])
