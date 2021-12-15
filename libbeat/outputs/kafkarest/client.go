@@ -190,7 +190,7 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 			indexType := "log"
 			docType := "user-input"
 			if redactBody != nil {
-				tagIndexType := labels.(map[string]interface{})["_tagIndexType"]
+				tagIndexType := labels.(map[string]interface{})["_tag_IndexType"]
 				tagDocType := labels.(map[string]interface{})["_tag_documentType"]
 				if tagIndexType != nil {
 					if strings.Contains(strings.ToLower(tagIndexType.(string)), "metric") {
@@ -208,7 +208,9 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 			if http, httpFound := valueData["http"]; httpFound {
 				if request, requestFound := http.(map[string]interface{})["request"]; requestFound {
 					httpBodyString = request.(map[string]interface{})["body"]
-					httpRequestBodyFound = true
+					if httpBodyString != nil {
+						httpRequestBodyFound = true
+					}
 				}
 			}
 			// httpBodyString = valueData["http"].(map[string]interface{})["request"].(map[string]interface{})["body"]
@@ -230,13 +232,17 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 
 							c.log.Debugf("trace httpd body found : %+v ", httpBodyString)
 							httpBody := map[string]interface{}{}
-							if err := json.Unmarshal([]byte(httpBodyString.(string)), &httpBody); err != nil {
-								c.log.Errorf("Error Parsing http body: %+v", err)
-								// If error is found do not send log data
-								continue
-							} else {
-								traceBody["request_body"] = httpBody
-								// valueData["http"].(map[string]interface{})["request"].(map[string]interface{})["body"] = httpBody
+							switch v := httpBodyString.(type) {
+							case string:
+								if err := json.Unmarshal([]byte(httpBodyString.(string)), &httpBody); err != nil {
+									c.log.Errorf("Error Parsing http body: %+v", err)
+									// If error is found do not send log data
+								} else {
+									traceBody["request_body"] = httpBody
+									// valueData["http"].(map[string]interface{})["request"].(map[string]interface{})["body"] = httpBody
+								}
+							default:
+								c.log.Debugf("Found unexpected type %+v", v)
 							}
 						} else {
 							// If httpd body is not found do not send log data
@@ -247,12 +253,13 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 						traceBody["service"] = valueData["service"]
 						traceBody["labels"] = valueData["labels"]
 						delete(traceBody["labels"].(map[string]interface{}), "_tag_documentType")
-						delete(traceBody["labels"].(map[string]interface{}), "_tagIndexType")
+						delete(traceBody["labels"].(map[string]interface{}), "_tag_IndexType")
 						delete(traceBody["labels"].(map[string]interface{}), "_tag_redact_body")
 						traceBody["processor"] = valueData["processor"]
 						traceBody["source"] = valueData["source"]
 						traceBody["agent"] = valueData["agent"]
 						traceBody["status"] = valueData["http"].(map[string]interface{})["response"].(map[string]interface{})["status_code"]
+						traceBody["user_agent"] = valueData["user_agent"]
 
 						if valueData["user"] == nil {
 							traceBody["user"] = make(map[string]interface{})
