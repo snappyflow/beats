@@ -241,6 +241,8 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 									traceBody["request_body"] = httpBody
 									// valueData["http"].(map[string]interface{})["request"].(map[string]interface{})["body"] = httpBody
 								}
+							case map[string]interface{}:
+								traceBody["request_body"] = httpBodyString
 							default:
 								c.log.Debugf("Found unexpected type %+v", v)
 							}

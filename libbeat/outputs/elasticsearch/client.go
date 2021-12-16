@@ -344,6 +344,8 @@ func interceptDocument(log *logp.Logger, index outputs.IndexSelector, event beat
 						traceBody["request_body"] = httpBody
 						// valueData["http"].(map[string]interface{})["request"].(map[string]interface{})["body"] = httpBody
 					}
+				case map[string]interface{}:
+					traceBody["request_body"] = httpBodyString
 				default:
 					log.Debugf("Found unexpected type %+v", v)
 				}
