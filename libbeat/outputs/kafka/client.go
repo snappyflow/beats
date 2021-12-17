@@ -29,6 +29,8 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/eapache/go-resiliency/breaker"
 
+	"github.com/snappyflow/beats/v7/libbeat/beat"
+	"github.com/snappyflow/beats/v7/libbeat/common"
 	"github.com/snappyflow/beats/v7/libbeat/common/fmtstr"
 	"github.com/snappyflow/beats/v7/libbeat/common/transport"
 	"github.com/snappyflow/beats/v7/libbeat/logp"
@@ -152,6 +154,7 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 
 	var valueData map[string]interface{}
 	ch := c.producer.Input()
+	var newEvents []publisher.Event
 	for i := range events {
 		d := &events[i]
 		msg, err := c.getEventMessage(d)
@@ -183,6 +186,108 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 			c.observer.Dropped(1)
 			continue
 		}
+		redactBody := labels.(map[string]interface{})["_tag_redact_body"]
+		if redactBody != nil {
+			indexType := "log"
+			docType := "user-input"
+			tagIndexType := labels.(map[string]interface{})["_tag_IndexType"]
+			tagDocType := labels.(map[string]interface{})["_tag_documentType"]
+			if tagIndexType != nil {
+				if strings.Contains(strings.ToLower(tagIndexType.(string)), "metric") {
+					indexType = "metric"
+				}
+			}
+			if tagDocType != nil {
+				docType = tagDocType.(string)
+			}
+
+			var httpBodyString interface{} = nil
+			httpRequestBodyFound := false
+
+			if http, httpFound := valueData["http"]; httpFound {
+				if request, requestFound := http.(map[string]interface{})["request"]; requestFound {
+					httpBodyString = request.(map[string]interface{})["body"]
+					if httpBodyString != nil {
+						httpRequestBodyFound = true
+					}
+				}
+
+				if httpRequestBodyFound {
+					newEvent := publisher.Event{}
+					newEvent.Cache = events[i].Cache
+					newEvent.Flags = events[i].Flags
+					beatEvent := beat.Event{}
+					beatEvent.Meta = events[i].Content.Meta.Clone()
+					beatEvent.Private = events[i].Content.Private
+					beatEvent.Timestamp = events[i].Content.Timestamp
+					beatEvent.Fields = common.MapStr{}
+
+					traceBody := make(map[string]interface{})
+					if httpBodyString != nil {
+						httpBodyString = httpBodyString.(map[string]interface{})["original"]
+
+						c.log.Debugf("trace httpd body found : %+v ", httpBodyString)
+						httpBody := map[string]interface{}{}
+						switch v := httpBodyString.(type) {
+						case string:
+							if err := json.Unmarshal([]byte(httpBodyString.(string)), &httpBody); err != nil {
+								c.log.Errorf("Error Parsing http body: %+v", err)
+								// If error is found do not send log data
+							} else {
+								traceBody["request_body"] = httpBody
+								// valueData["http"].(map[string]interface{})["request"].(map[string]interface{})["body"] = httpBody
+							}
+						case map[string]interface{}:
+							traceBody["request_body"] = httpBodyString
+						default:
+							c.log.Debugf("Found unexpected type %+v", v)
+						}
+
+					} else {
+						// If httpd body is not found do not send log data
+						c.log.Debug("Trace http body not found")
+					}
+
+					traceBody["url"] = valueData["url"]
+					traceBody["service"] = valueData["service"]
+					traceBody["labels"] = valueData["labels"]
+					delete(traceBody["labels"].(map[string]interface{}), "_tag_documentType")
+					delete(traceBody["labels"].(map[string]interface{}), "_tag_IndexType")
+					delete(traceBody["labels"].(map[string]interface{}), "_tag_redact_body")
+					traceBody["processor"] = valueData["processor"]
+					traceBody["source"] = valueData["source"]
+					traceBody["agent"] = valueData["agent"]
+					traceBody["status"], _ = events[i].Content.Fields.GetValue("http.response.status_code")
+					traceBody["user_agent"], _ = events[i].Content.Fields.GetValue("user_agent")
+
+					if valueData["user"] == nil {
+						traceBody["user"] = make(map[string]interface{})
+					} else {
+						traceBody["user"] = valueData["user"]
+					}
+					// log.Debugf("new Index %+v", newIndex)
+					// log.Debugf("Inside trace http body :")
+					beatEvent.Fields.Put("_traceBody", traceBody)
+					beatEvent.Fields.Put("time", int(valueData["timestamp"].(map[string]interface{})["us"].(float64))/1000)
+
+					beatEvent.Fields.Put("_plugin", "trace_body")
+					beatEvent.Fields.Put("_documentType", docType)
+
+					beatEvent.Fields.Put("_tag_projectName", labels.(map[string]interface{})["_tag_projectName"].(string))
+					beatEvent.Fields.Put("_tag_appName", labels.(map[string]interface{})["_tag_appName"].(string))
+
+					beatEvent.Fields.Put("message", "Trace request body")
+					beatEvent.Fields.Put("trace_id", valueData["trace"].(map[string]interface{})["id"])
+					beatEvent.Fields.Put("transaction_id", valueData["transaction"].(map[string]interface{})["id"])
+					beatEvent.Meta.Put("topic", indexType+"-"+profileId)
+					newEvent.Content = beatEvent
+
+					newEvents = append(newEvents, newEvent)
+
+				}
+
+			}
+		}
 		msg.topic = "trace-" + profileId
 		c.log.Debugf("Kafka Topic: %v", msg.topic)
 		if tval, ok := ignoretopics[msg.topic]; ok {
@@ -198,8 +303,47 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 		}
 		msg.ref = ref
 		msg.initProducerMessage()
+
 		ch <- &msg.msg
 	}
+
+	c.observer.NewBatch(len(newEvents))
+
+	newRef := msgRef{
+		client: c,
+		count:  int32(len(newEvents)),
+		total:  len(newEvents),
+		failed: nil,
+		batch:  nil,
+	}
+
+	for i := range newEvents {
+		d := &newEvents[i]
+		topic, _ := d.Content.Meta.GetValue("topic")
+		d.Content.Meta.Delete("topic")
+		newMsg, err := c.getEventMessage(d)
+		if err == nil {
+			newMsg.topic = topic.(string)
+			if tval, ok := ignoretopics[newMsg.topic]; ok {
+				c.log.Debugf("Ignore Kafka Topic: %v events", newMsg.topic)
+				newRef.done()
+				c.observer.Dropped(1)
+				elapsed := time.Now().Unix() - tval
+				c.log.Debugf("Elapsed: %d", elapsed)
+				if elapsed > IGNOREDURATION {
+					delete(ignoretopics, newMsg.topic)
+				}
+			}
+
+			newMsg.ref = &newRef
+			newMsg.initProducerMessage()
+
+			ch <- &newMsg.msg
+		} else {
+			c.log.Debugf("Error occurred creating new msg for %+v ", err)
+		}
+	}
+
 	return nil
 }
 
@@ -368,7 +512,9 @@ func (r *msgRef) dec() {
 		r.client.log.Errorf("Kafka: retrying %v events because publishing the previous batch failed with: %+v", len(r.failed), err)
 	} else {
 		r.client.log.Debugf("Kafka publish successful for events %v", r.total)
-		r.batch.ACK()
+		if r.batch != nil {
+			r.batch.ACK()
+		}
 		stats.Acked(r.total)
 	}
 }
