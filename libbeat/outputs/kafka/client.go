@@ -24,8 +24,10 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/Shopify/sarama"
+	"github.com/eapache/go-resiliency/breaker"
 
 	"github.com/snappyflow/beats/v7/libbeat/common/fmtstr"
 	"github.com/snappyflow/beats/v7/libbeat/common/transport"
@@ -50,7 +52,8 @@ type client struct {
 
 	producer sarama.AsyncProducer
 
-	wg sync.WaitGroup
+	wg   sync.WaitGroup
+	done chan struct{}
 }
 
 type msgRef struct {
@@ -66,6 +69,12 @@ type msgRef struct {
 var (
 	errNoTopicsSelected = errors.New("no topic could be selected")
 )
+
+// Ignore topics which does not exist in Kafka
+var ignoretopics = make(map[string]int64)
+
+// If topic does not exist in Kafka, events are ignore for below duration in seconds
+const IGNOREDURATION = 60
 
 func newKafkaClient(
 	observer outputs.Observer,
@@ -85,7 +94,9 @@ func newKafkaClient(
 		index:    strings.ToLower(index),
 		codec:    writer,
 		config:   *cfg,
+		done:     make(chan struct{}),
 	}
+	// ignoretopics["trace-unwlgitz"] = struct{}{}
 	return c, nil
 }
 
@@ -120,7 +131,7 @@ func (c *client) Close() error {
 	if c.producer == nil {
 		return nil
 	}
-
+	close(c.done)
 	c.producer.AsyncClose()
 	c.wg.Wait()
 	c.producer = nil
@@ -138,7 +149,7 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 		failed: nil,
 		batch:  batch,
 	}
-	dropped := 0
+
 	var valueData map[string]interface{}
 	ch := c.producer.Input()
 	for i := range events {
@@ -155,27 +166,40 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 			eventType := processor.(map[string]interface{})["event"].(string)
 			c.log.Debugf("eventType: %v", eventType)
 			if eventType == "metric" {
-				dropped += 1
+				ref.done()
+				c.observer.Dropped(1)
 				continue
 			}
 		}
 		labels, ok := valueData["labels"]
 		if !ok {
-			dropped += 1
+			ref.done()
+			c.observer.Dropped(1)
 			continue
 		}
 		profileId, ok := labels.(map[string]interface{})["_tag_profileId"].(string)
 		if !ok {
-			dropped += 1
+			ref.done()
+			c.observer.Dropped(1)
 			continue
 		}
 		msg.topic = "trace-" + profileId
 		c.log.Debugf("Kafka Topic: %v", msg.topic)
+		if tval, ok := ignoretopics[msg.topic]; ok {
+			c.log.Debugf("Ignore Kafka Topic: %v events", msg.topic)
+			ref.done()
+			c.observer.Dropped(1)
+			elapsed := time.Now().Unix() - tval
+			c.log.Debugf("Elapsed: %d", elapsed)
+			if elapsed > IGNOREDURATION {
+				delete(ignoretopics, msg.topic)
+			}
+			continue
+		}
 		msg.ref = ref
 		msg.initProducerMessage()
 		ch <- &msg.msg
 	}
-	c.observer.Dropped(dropped)
 	return nil
 }
 
@@ -258,12 +282,33 @@ func (c *client) successWorker(ch <-chan *sarama.ProducerMessage) {
 }
 
 func (c *client) errorWorker(ch <-chan *sarama.ProducerError) {
+	breakerOpen := false
 	defer c.wg.Done()
 	defer c.log.Debug("Stop kafka error handler")
 
 	for errMsg := range ch {
 		msg := errMsg.Msg.Metadata.(*message)
 		msg.ref.fail(msg, errMsg.Err)
+		if errMsg.Err == breaker.ErrBreakerOpen {
+			if breakerOpen {
+				// Immediately log the error that presumably caused this state,
+				// since the error reporting on this batch will be delayed.
+				if msg.ref.err != nil {
+					c.log.Errorf("Kafka (topic=%v): %v", msg.topic, msg.ref.err)
+				}
+				select {
+				case <-time.After(10 * time.Second):
+					// Sarama's circuit breaker is hard-coded to reject all inputs
+					// for 10sec.
+				case <-msg.ref.client.done:
+					// Allow early bailout if the output itself is closing.
+				}
+				breakerOpen = false
+			} else {
+				breakerOpen = true
+			}
+		}
+
 	}
 }
 
@@ -272,21 +317,30 @@ func (r *msgRef) done() {
 }
 
 func (r *msgRef) fail(msg *message, err error) {
-	switch err {
-	case sarama.ErrInvalidMessage:
-		r.client.log.Errorf("Kafka (topic=%v): dropping invalid message", msg.topic)
+	if !isRetriable(err) {
+		r.client.log.Errorf("Kafka (topic=%v, size=%v): unretriable error: %v", msg.topic, len(msg.key)+len(msg.value), err.Error())
 		r.client.observer.Dropped(1)
+		if err == sarama.ErrUnknownTopicOrPartition {
+			r.client.log.Infof("Add topic=%v to Ignore Kafka topic list", msg.topic)
+			ignoretopics[msg.topic] = time.Now().Unix()
+		}
+	} else {
+		switch err {
+		case breaker.ErrBreakerOpen:
+			// Add this message to the failed list, but don't overwrite r.err since
+			// all the breaker error means is "there were a lot of other errors".
+			r.failed = append(r.failed, msg.data)
 
-	case sarama.ErrMessageSizeTooLarge, sarama.ErrInvalidMessageSize:
-		r.client.log.Errorf("Kafka (topic=%v): dropping too large message of size %v.",
-			msg.topic,
-			len(msg.key)+len(msg.value))
-		r.client.observer.Dropped(1)
-
-	default:
-		r.failed = append(r.failed, msg.data)
-		r.err = err
+		default:
+			r.failed = append(r.failed, msg.data)
+			if r.err == nil {
+				// Don't overwrite an existing error. This way at the end of the batch
+				// we report the first error that we saw, rather than the last one.
+				r.err = err
+			}
+		}
 	}
+
 	r.dec()
 }
 
@@ -310,8 +364,10 @@ func (r *msgRef) dec() {
 			stats.Acked(success)
 		}
 
-		r.client.log.Errorf("Kafka publish failed with: %+v", err)
+		// r.client.log.Errorf("Kafka publish failed with: %+v", err)
+		r.client.log.Errorf("Kafka: retrying %v events because publishing the previous batch failed with: %+v", len(r.failed), err)
 	} else {
+		r.client.log.Debugf("Kafka publish successful for events %v", r.total)
 		r.batch.ACK()
 		stats.Acked(r.total)
 	}

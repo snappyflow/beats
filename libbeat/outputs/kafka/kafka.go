@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
-
+	"github.com/eapache/go-resiliency/breaker"
 	"github.com/snappyflow/beats/v7/libbeat/beat"
 	"github.com/snappyflow/beats/v7/libbeat/common"
 	"github.com/snappyflow/beats/v7/libbeat/logp"
@@ -45,6 +45,30 @@ var (
 	errNoTopicSet = errors.New("No topic configured")
 	errNoHosts    = errors.New("No hosts configured")
 )
+
+func isRetriable(err error) bool {
+	// retriableErrors are transient errors that may go away if we try again.
+	// Taken from https://kafka.apache.org/25/javadoc/org/apache/kafka/common/errors/RetriableException.html.
+	var retriableErrors = []error{
+		sarama.ErrConsumerCoordinatorNotAvailable,
+		sarama.ErrFetchSessionIDNotFound,
+		sarama.ErrInvalidFetchSessionEpoch,
+		sarama.ErrNotController,
+		sarama.ErrNotCoordinatorForConsumer,
+		sarama.ErrNotEnoughReplicasAfterAppend,
+		sarama.ErrNotEnoughReplicas,
+		sarama.ErrOffsetNotAvailable,
+		sarama.ErrUnknownLeaderEpoch,
+		breaker.ErrBreakerOpen,
+	}
+
+	for _, v := range retriableErrors {
+		if errors.Is(err, v) {
+			return true
+		}
+	}
+	return false
+}
 
 func init() {
 	sarama.Logger = kafkaLogger{log: logp.NewLogger(logSelector)}
