@@ -76,7 +76,7 @@ var (
 var ignoretopics = make(map[string]int64)
 
 // If topic does not exist in Kafka, events are ignore for below duration in seconds
-const IGNOREDURATION = 60
+const IGNOREDURATION = 3600
 
 func newKafkaClient(
 	observer outputs.Observer,
