@@ -341,11 +341,12 @@ func interceptDocument(log *logp.Logger, index outputs.IndexSelector, event beat
 						log.Errorf("Error Parsing http body: %+v", err)
 						// If error is found do not send log data
 					} else {
-						traceBody["request_body"] = httpBody
-						// valueData["http"].(map[string]interface{})["request"].(map[string]interface{})["body"] = httpBody
+						newEvent.Fields.Put("body_json", httpBody)
+						// traceBody["request_body"] = httpBody
 					}
 				case map[string]interface{}:
-					traceBody["request_body"] = httpBodyString
+					// traceBody["request_body"] = httpBodyString
+					newEvent.Fields.Put("body_json", httpBodyString)
 				default:
 					log.Debugf("Found unexpected type %+v", v)
 				}
@@ -373,7 +374,7 @@ func interceptDocument(log *logp.Logger, index outputs.IndexSelector, event beat
 			}
 			// log.Debugf("new Index %+v", newIndex)
 			// log.Debugf("Inside trace http body :")
-			newEvent.Fields.Put("_traceBody", traceBody)
+			newEvent.Fields.Put("details_json", traceBody)
 			newEvent.Fields.Put("time", int(valueData["timestamp"].(map[string]interface{})["us"].(float64))/1000)
 
 			newEvent.Fields.Put("_plugin", "trace_body")

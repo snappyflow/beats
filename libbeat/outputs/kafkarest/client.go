@@ -238,11 +238,12 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 									c.log.Errorf("Error Parsing http body: %+v", err)
 									// If error is found do not send log data
 								} else {
-									traceBody["request_body"] = httpBody
-									// valueData["http"].(map[string]interface{})["request"].(map[string]interface{})["body"] = httpBody
+									logData["body_json"] = httpBody
+									// traceBody["request_body"] = httpBody
 								}
 							case map[string]interface{}:
-								traceBody["request_body"] = httpBodyString
+								// traceBody["request_body"] = httpBodyString
+								logData["body_json"] = httpBodyString
 							default:
 								c.log.Debugf("Found unexpected type %+v", v)
 							}
@@ -270,7 +271,7 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 						}
 
 						c.log.Debugf("Inside trace http body : %v", topic)
-						logData["_traceBody"] = traceBody
+						logData["details_json"] = traceBody
 						logData["time"] =
 							int(valueData["timestamp"].(map[string]interface{})["us"].(float64)) / 1000
 

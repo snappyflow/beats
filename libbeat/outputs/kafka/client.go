@@ -234,11 +234,12 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 								c.log.Errorf("Error Parsing http body: %+v", err)
 								// If error is found do not send log data
 							} else {
-								traceBody["request_body"] = httpBody
-								// valueData["http"].(map[string]interface{})["request"].(map[string]interface{})["body"] = httpBody
+								// traceBody["request_body"] = httpBody
+								beatEvent.Fields.Put("body_json", httpBody)
 							}
 						case map[string]interface{}:
-							traceBody["request_body"] = httpBodyString
+							// traceBody["request_body"] = httpBodyString
+							beatEvent.Fields.Put("body_json", httpBodyString)
 						default:
 							c.log.Debugf("Found unexpected type %+v", v)
 						}
@@ -267,7 +268,7 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 					}
 					// log.Debugf("new Index %+v", newIndex)
 					// log.Debugf("Inside trace http body :")
-					beatEvent.Fields.Put("_traceBody", traceBody)
+					beatEvent.Fields.Put("details_json", traceBody)
 					beatEvent.Fields.Put("time", int(valueData["timestamp"].(map[string]interface{})["us"].(float64))/1000)
 
 					beatEvent.Fields.Put("_plugin", "trace_body")
