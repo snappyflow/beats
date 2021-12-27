@@ -200,7 +200,6 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 				if tagDocType != nil {
 					docType = tagDocType.(string)
 				}
-				topics = append(topics, indexType+"-"+profileId)
 			}
 			var httpBodyString interface{} = nil
 			httpRequestBodyFound := false
@@ -210,6 +209,7 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 					httpBodyString = request.(map[string]interface{})["body"]
 					if httpBodyString != nil {
 						httpRequestBodyFound = true
+				                topics = append(topics, indexType+"-"+profileId)
 					}
 				}
 			}
