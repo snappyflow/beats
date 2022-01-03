@@ -407,6 +407,18 @@ func bulkEncodePublishRequest(
 	var newData []publisher.Event
 	for i := range data {
 		event := data[i].Content
+		// Drop event if profile id is not present
+		_, err := event.Fields.GetValue("labels._tag_profileId")
+		if err != nil {
+			continue
+		}
+		// Drop metric event
+		procEvent, err := event.Fields.GetValue("processor.event")
+		if err == nil {
+			if procEvent.(string) == "metric" {
+				continue
+			}
+		}
 		newData = append(newData, data[i])
 		processRequired, newEvent := interceptDocument(log, index, event)
 		if processRequired {
