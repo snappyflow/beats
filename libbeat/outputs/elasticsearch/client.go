@@ -481,6 +481,20 @@ func createEventBulkMeta(
 		}
 	}
 
+	// Only process for Snappyflow indexes
+	validSFIndexes := []string{"trace", "log", "metric"}
+	canProcess := false
+	for _, indexType := range validSFIndexes {
+		if strings.Contains(index, indexType) {
+			canProcess = true
+			break
+		}
+	}
+	if !canProcess {
+		err := fmt.Errorf("not a valid index: %v", index)
+		return nil, err
+	}
+
 	id, _ := events.GetMetaStringValue(*event, events.FieldMetaID)
 	opType := events.GetOpType(*event)
 
