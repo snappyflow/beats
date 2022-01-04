@@ -482,14 +482,19 @@ func createEventBulkMeta(
 	}
 
 	// Only process for Snappyflow indexes
-	validSFIndexes := []string{"trace", "log", "metric"}
 	canProcess := false
-	for _, indexType := range validSFIndexes {
-		if strings.Contains(index, indexType) {
+	indexArr := strings.Split(index, "-")
+	validSFIndexes := map[string]string{
+		"log":    "valid",
+		"trace":  "valid",
+		"metric": "valid",
+	}
+	if len(indexArr) > 0 {
+		if _, ok := validSFIndexes[indexArr[0]]; ok {
 			canProcess = true
-			break
 		}
 	}
+
 	if !canProcess {
 		err := fmt.Errorf("not a valid index: %v", index)
 		return nil, err
