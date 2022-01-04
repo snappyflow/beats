@@ -407,6 +407,18 @@ func bulkEncodePublishRequest(
 	var newData []publisher.Event
 	for i := range data {
 		event := data[i].Content
+		// Drop event if profile id is not present
+		_, err := event.Fields.GetValue("labels._tag_profileId")
+		if err != nil {
+			continue
+		}
+		// Drop metric event
+		procEvent, err := event.Fields.GetValue("processor.event")
+		if err == nil {
+			if procEvent.(string) == "metric" {
+				continue
+			}
+		}
 		newData = append(newData, data[i])
 		processRequired, newEvent := interceptDocument(log, index, event)
 		if processRequired {
@@ -467,6 +479,25 @@ func createEventBulkMeta(
 			err := fmt.Errorf("failed to select event index: %v", err)
 			return nil, err
 		}
+	}
+
+	// Only process for Snappyflow indexes
+	canProcess := false
+	indexArr := strings.Split(index, "-")
+	validSFIndexes := map[string]string{
+		"log":    "valid",
+		"trace":  "valid",
+		"metric": "valid",
+	}
+	if len(indexArr) > 0 {
+		if _, ok := validSFIndexes[indexArr[0]]; ok {
+			canProcess = true
+		}
+	}
+
+	if !canProcess {
+		err := fmt.Errorf("not a valid index: %v", index)
+		return nil, err
 	}
 
 	id, _ := events.GetMetaStringValue(*event, events.FieldMetaID)
