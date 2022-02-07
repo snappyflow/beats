@@ -184,6 +184,17 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 
 			profileId := labels.(map[string]interface{})["_tag_profileId"].(string)
 			redactBody := labels.(map[string]interface{})["_tag_redact_body"]
+			projectName, projFound := labels.(map[string]interface{})["_tag_projectName"].(string)
+			// Dropping record if project name is not found
+			if !projFound {
+				ref.done()
+				c.observer.Dropped(1)
+				continue
+			}
+
+			// Delete Cookies from headers
+			d.Content.Fields.Delete("http.request.headers.Cookies")
+			d.Content.Fields.Delete("http.response.headers.Cookies")
 
 			topics := make([]string, 0)
 			topics = append(topics, "trace-"+profileId)
@@ -209,7 +220,7 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 					httpBodyString = request.(map[string]interface{})["body"]
 					if httpBodyString != nil {
 						httpRequestBodyFound = true
-				                topics = append(topics, indexType+"-"+profileId)
+						topics = append(topics, indexType+"-"+profileId)
 					}
 				}
 			}
@@ -278,7 +289,7 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 						logData["_plugin"] = "trace_body"
 						logData["_documentType"] = docType
 
-						logData["_tag_projectName"] = labels.(map[string]interface{})["_tag_projectName"].(string)
+						logData["_tag_projectName"] = projectName
 						logData["_tag_appName"] = labels.(map[string]interface{})["_tag_appName"].(string)
 
 						logData["trace_id"] = valueData["trace"].(map[string]interface{})["id"]
