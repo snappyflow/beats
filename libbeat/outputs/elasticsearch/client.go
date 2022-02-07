@@ -286,9 +286,18 @@ func interceptDocument(log *logp.Logger, index outputs.IndexSelector, event beat
 	json.Unmarshal(msg, &valueData)
 	// log.Infof("Document data %+v", valueData)
 	if labels, ok := valueData["labels"]; ok {
+
 		profileId := labels.(map[string]interface{})["_tag_profileId"].(string)
-		projectName := labels.(map[string]interface{})["_tag_projectName"].(string)
+		projectName, projFound := labels.(map[string]interface{})["_tag_projectName"].(string)
 		redactBody := labels.(map[string]interface{})["_tag_redact_body"]
+
+		// Dropping record if project name is not found
+		if !projFound {
+			return processRequired, newEvent
+		}
+		// Delete Cookies from headers
+		event.Fields.Delete("http.request.headers.Cookies")
+		event.Fields.Delete("http.response.headers.Cookies")
 
 		var httpBodyString interface{} = nil
 		httpRequestBodyFound := false

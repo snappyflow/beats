@@ -186,6 +186,17 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 			c.observer.Dropped(1)
 			continue
 		}
+		projectName, ok := labels.(map[string]interface{})["_tag_projectName"].(string)
+		// Dropping record if project name is not found
+		if !ok {
+			ref.done()
+			c.observer.Dropped(1)
+			continue
+		}
+		// Delete Cookies from headers
+		d.Content.Fields.Delete("http.request.headers.Cookies")
+		d.Content.Fields.Delete("http.response.headers.Cookies")
+
 		redactBody := labels.(map[string]interface{})["_tag_redact_body"]
 		if redactBody != nil {
 			indexType := "log"
@@ -274,7 +285,7 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 					beatEvent.Fields.Put("_plugin", "trace_body")
 					beatEvent.Fields.Put("_documentType", docType)
 
-					beatEvent.Fields.Put("_tag_projectName", labels.(map[string]interface{})["_tag_projectName"].(string))
+					beatEvent.Fields.Put("_tag_projectName", projectName)
 					beatEvent.Fields.Put("_tag_appName", labels.(map[string]interface{})["_tag_appName"].(string))
 
 					beatEvent.Fields.Put("message", "Trace request body")
