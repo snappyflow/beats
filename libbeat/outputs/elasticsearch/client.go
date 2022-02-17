@@ -468,7 +468,7 @@ func createEventBulkMeta(
 	event *beat.Event,
 ) (interface{}, error) {
 	eventType := ""
-	if version.Major < 7 {
+	if version.Major == 6 {
 		eventType = defaultEventType
 	}
 
