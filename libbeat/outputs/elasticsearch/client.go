@@ -489,6 +489,15 @@ func createEventBulkMeta(
 			return nil, err
 		}
 	}
+	// For rum agent - redirection to rum index based on project name
+	agent, err := event.Fields.GetValue("labels._tag_agent")
+	if err == nil {
+		if agent == "rum" {
+			profileId, _ := event.Fields.GetValue("labels._tag_profileId")
+			projectName, _ := event.Fields.GetValue("labels._tag_projectName")
+			index = fmt.Sprintf("rum-%s-%s-$", profileId.(string), projectName.(string))
+		}
+	}
 
 	// Only process for Snappyflow indexes
 	canProcess := false
