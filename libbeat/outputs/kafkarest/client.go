@@ -245,10 +245,7 @@ func (c *client) Publish(_ context.Context, batch publisher.Batch) error {
 							httpBody := map[string]interface{}{}
 							switch v := httpBodyString.(type) {
 							case string:
-								if err := json.Unmarshal([]byte(httpBodyString.(string)), &httpBody); err != nil {
-									c.log.Errorf("Error Parsing http body: %+v", err)
-									// If error is found do not send log data
-								} else {
+								if err := json.Unmarshal([]byte(httpBodyString.(string)), &httpBody); err == nil {
 									logData["body_json"] = httpBody
 									// traceBody["request_body"] = httpBody
 								}
