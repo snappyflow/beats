@@ -346,10 +346,7 @@ func interceptDocument(log *logp.Logger, index outputs.IndexSelector, event beat
 				httpBody := map[string]interface{}{}
 				switch v := httpBodyString.(type) {
 				case string:
-					if err := json.Unmarshal([]byte(httpBodyString.(string)), &httpBody); err != nil {
-						log.Errorf("Error Parsing http body: %+v", err)
-						// If error is found do not send log data
-					} else {
+					if err := json.Unmarshal([]byte(httpBodyString.(string)), &httpBody); err == nil {
 						newEvent.Fields.Put("body_json", httpBody)
 						// traceBody["request_body"] = httpBody
 					}
@@ -495,7 +492,7 @@ func createEventBulkMeta(
 		if agent == "rum" {
 			profileId, _ := event.Fields.GetValue("labels._tag_profileId")
 			projectName, _ := event.Fields.GetValue("labels._tag_projectName")
-			index = fmt.Sprintf("rum-%s-%s-$", profileId.(string), projectName.(string))
+			index = fmt.Sprintf("rum-%s-%s-$", profileId.(string), getMetricName(projectName.(string)))
 		}
 	}
 
