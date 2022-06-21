@@ -492,7 +492,7 @@ func createEventBulkMeta(
 		if agent == "rum" {
 			profileId, _ := event.Fields.GetValue("labels._tag_profileId")
 			projectName, _ := event.Fields.GetValue("labels._tag_projectName")
-			index = fmt.Sprintf("rum-%s-%s-$", profileId.(string), getMetricName(projectName.(string)))
+			index = fmt.Sprintf("rum-%s-%s-$_write", profileId.(string), getMetricName(projectName.(string)))
 		}
 	}
 
