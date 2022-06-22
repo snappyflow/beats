@@ -503,6 +503,7 @@ func createEventBulkMeta(
 		"log":    "valid",
 		"trace":  "valid",
 		"metric": "valid",
+		"rum":    "valid",
 	}
 	if len(indexArr) > 0 {
 		if _, ok := validSFIndexes[indexArr[0]]; ok {
